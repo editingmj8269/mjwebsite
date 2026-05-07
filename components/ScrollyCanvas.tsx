@@ -13,6 +13,18 @@ export default function ScrollyCanvas() {
   const imagesRef = useRef<HTMLImageElement[]>([]);
   const lastDrawnIndex = useRef<number>(-1);
 
+  // Framer motion scroll tracking
+  const { scrollYProgress } = useScroll({
+    target: containerRef,
+    offset: ["start start", "end end"],
+  });
+
+  // Map scroll progress (0 to 1) to frame index (0 to 88)
+  const frameIndex = useTransform(scrollYProgress, [0, 1], [0, FRAME_COUNT - 1]);
+
+  // Smooth fade to black right after the text fades out
+  const fadeOut = useTransform(scrollYProgress, [0.3, 0.6], [0, 1]);
+
   useEffect(() => {
     // Preload all images
     let loadedCount = 0;
