@@ -9,52 +9,76 @@ const FRAME_COUNT = 89; // 0 to 88
 export default function ScrollyCanvas() {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [images, setImages] = useState<HTMLImageElement[]>([]);
-
-  // Framer motion scroll tracking
-  const { scrollYProgress } = useScroll({
-    target: containerRef,
-    offset: ["start start", "end end"],
-  });
-
-  // Map scroll progress (0 to 1) to frame index (0 to 88)
-  const frameIndex = useTransform(scrollYProgress, [0, 1], [0, FRAME_COUNT - 1]);
-
-  // Smooth fade to black right after the text fades out
-  const fadeOut = useTransform(scrollYProgress, [0.3, 0.6], [0, 1]);
+  const [imagesLoaded, setImagesLoaded] = useState(false);
+  const imagesRef = useRef<HTMLImageElement[]>([]);
+  const lastDrawnIndex = useRef<number>(-1);
 
   useEffect(() => {
     // Preload all images
-    const loadedImages: HTMLImageElement[] = [];
     let loadedCount = 0;
-
+    
     for (let i = 0; i < FRAME_COUNT; i++) {
       const img = new Image();
       const frameNum = i.toString().padStart(2, "0");
+      // Use absolute path for reliability
       img.src = `/sequence/frame_${frameNum}_delay-0.066s.png`;
+      
       img.onload = () => {
+        imagesRef.current[i] = img;
         loadedCount++;
+        
+        if (i === 0 || !imagesLoaded) {
+          drawFrame(Math.round(frameIndex.get()));
+        }
+
         if (loadedCount === FRAME_COUNT) {
-          setImages(loadedImages);
-          // Draw first frame immediately
-          drawFrame(0, loadedImages);
+          setImagesLoaded(true);
+          console.log("All sequence images loaded successfully");
         }
       };
-      loadedImages.push(img);
+
+      img.onerror = () => {
+        console.error(`Failed to load image: /sequence/frame_${frameNum}_delay-0.066s.png`);
+      };
     }
   }, []);
 
-  const drawFrame = (index: number, imgArray: HTMLImageElement[]) => {
+  const drawFrame = (index: number) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const img = imgArray[index];
-    if (!img) return;
+    const imgArray = imagesRef.current;
+    let img = imgArray[index];
+    
+    if (!img) {
+      // Find closest loaded frame
+      for (let i = index; i >= 0; i--) {
+        if (imgArray[i]) { img = imgArray[i]; break; }
+      }
+      if (!img) {
+        for (let i = index; i < FRAME_COUNT; i++) {
+          if (imgArray[i]) { img = imgArray[i]; break; }
+        }
+      }
+    }
 
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
+    if (!img) return;
+    if (lastDrawnIndex.current === index && canvas.width === window.innerWidth) return;
+
+    renderImage(img, canvas, ctx);
+    lastDrawnIndex.current = index;
+  };
+
+  const renderImage = (img: HTMLImageElement, canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D) => {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
 
     const imgRatio = img.width / img.height;
     const canvasRatio = canvas.width / canvas.height;
@@ -78,22 +102,20 @@ export default function ScrollyCanvas() {
 
   useEffect(() => {
     // Update canvas whenever scroll changes
-    return frameIndex.on("change", (latestValue) => {
-      if (images.length === FRAME_COUNT) {
-        drawFrame(Math.round(latestValue), images);
-      }
+    // This effect now only runs once on mount
+    const unsubscribe = frameIndex.on("change", (latestValue) => {
+      drawFrame(Math.round(latestValue));
     });
-  }, [frameIndex, images]);
+    return () => unsubscribe();
+  }, [frameIndex]); // No more images dependency!
 
   useEffect(() => {
     const handleResize = () => {
-      if (images.length === FRAME_COUNT) {
-        drawFrame(Math.round(frameIndex.get()), images);
-      }
+      drawFrame(Math.round(frameIndex.get()));
     };
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
-  }, [images, frameIndex]);
+  }, [frameIndex]);
 
   return (
     <div ref={containerRef} className="relative h-[140vh] w-full bg-[#0a0a0a]">
